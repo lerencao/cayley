@@ -67,6 +67,7 @@ func (tikv *TiKV) Tx(update bool) (kv.FlatTx, error) {
 	return tx, nil
 }
 
+// TODO: merge txn and sn
 type TiTx struct {
 	update bool
 	txn    kv2.Transaction
@@ -125,6 +126,7 @@ func (tx *TiTx) Del(k []byte) error {
 
 func (tx *TiTx) Scan(pref []byte) kv.KVIterator {
 	it, err := tx.txn.Seek(pref)
+	// TODO: handle pref is nil case.
 	// if err is not nil, the returned iterator will has err too.
 	// And `Next` will return false.
 	return &iterator{

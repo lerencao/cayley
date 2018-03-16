@@ -145,6 +145,7 @@ func New(kv BucketKV, _ graph.Options) (graph.QuadStore, error) {
 	return qs, nil
 }
 
+// TODO: set version in meta
 func setVersion(ctx context.Context, kv BucketKV, version int64) error {
 	return Update(ctx, kv, func(tx BucketTx) error {
 		var buf [8]byte
@@ -179,6 +180,7 @@ func (qs *QuadStore) getMetaInt(ctx context.Context, key string) (int64, error) 
 	return v, err
 }
 
+// TODO: get size in meta
 func (qs *QuadStore) Size() int64 {
 	sz, _ := qs.getMetaInt(context.TODO(), "size")
 	return sz
@@ -188,6 +190,7 @@ func (qs *QuadStore) Close() error {
 	return qs.db.Close()
 }
 
+// TODO: get version in meta.
 func (qs *QuadStore) getMetadata(ctx context.Context) (int64, error) {
 	var vers int64
 	err := View(qs.db, func(tx BucketTx) error {
@@ -222,6 +225,7 @@ func asInt64(b []byte, empty int64) (int64, error) {
 	return v, nil
 }
 
+// TODO: get horizon in meta
 func (qs *QuadStore) horizon(ctx context.Context) int64 {
 	h, _ := qs.getMetaInt(ctx, "horizon")
 	return h
