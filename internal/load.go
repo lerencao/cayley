@@ -18,8 +18,8 @@ import (
 
 // Load loads a graph from the given path and write it to qw.  See
 // DecompressAndLoad for more information.
-func Load(qw graph.QuadWriter, batch int, path, typ string) error {
-	return DecompressAndLoad(qw, batch, path, typ, nil)
+func Load(qw graph.QuadWriter, batch int, path, typ string, concurrency int) error {
+	return DecompressAndLoad(qw, batch, path, typ, concurrency, nil)
 }
 
 type readCloser struct {
@@ -121,7 +121,7 @@ func QuadReaderFor(path, typ string) (quad.ReadCloser, error) {
 // DecompressAndLoad will load or fetch a graph from the given path, decompress
 // it, and then call the given load function to process the decompressed graph.
 // If no loadFn is provided, db.Load is called.
-func DecompressAndLoad(qw graph.QuadWriter, batch int, path, typ string, writerFunc func(graph.QuadWriter) graph.BatchWriter) error {
+func DecompressAndLoad(qw graph.QuadWriter, batch int, path, typ string, concurrency int, writerFunc func(graph.QuadWriter) graph.BatchWriter) error {
 	if path == "" {
 		return nil
 	}
@@ -134,13 +134,29 @@ func DecompressAndLoad(qw graph.QuadWriter, batch int, path, typ string, writerF
 	if writerFunc == nil {
 		writerFunc = graph.NewWriter
 	}
-	dest := writerFunc(qw)
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	dests := make([]graph.BatchWriter, concurrency)
+	destsWithLogger := make([]quad.BatchWriter, concurrency)
+	for i := 0; i < concurrency; i++ {
+		dests[i] = writerFunc(qw)
+		destsWithLogger[i] = &batchLogger{BatchWriter: dests[i]}
+	}
 
-	_, err = quad.CopyBatch(&batchLogger{BatchWriter: dest}, qr, batch)
+	err = quad.CopyBatches(destsWithLogger, qr, batch)
 	if err != nil {
 		return fmt.Errorf("db: failed to load data: %v", err)
 	}
-	return dest.Close()
+
+	for _, dest := range dests {
+		err1 := dest.Close()
+		if err == nil {
+			err = err1
+		}
+	}
+
+	return err
 }
 
 type batchLogger struct {

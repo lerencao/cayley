@@ -30,10 +30,11 @@ const (
 )
 
 const (
-	flagLoad       = "load"
-	flagLoadFormat = "load_format"
-	flagDump       = "dump"
-	flagDumpFormat = "dump_format"
+	flagLoadConcurrency = "load_concurrency"
+	flagLoad            = "load"
+	flagLoadFormat      = "load_format"
+	flagDump            = "dump"
+	flagDumpFormat      = "dump_format"
 )
 
 var ErrNotPersistent = errors.New("database type is not persistent")
@@ -49,6 +50,7 @@ func registerLoadFlags(cmd *cobra.Command) {
 	}
 	sort.Strings(names)
 	cmd.Flags().String(flagLoadFormat, "", `quad file format to use for loading instead of auto-detection ("`+strings.Join(names, `", "`)+`")`)
+	cmd.Flags().Int(flagLoadConcurrency, 1, "concurrency when load data")
 }
 
 func registerDumpFlags(cmd *cobra.Command) {
@@ -113,7 +115,8 @@ func NewLoadDatabaseCmd() *cobra.Command {
 
 			// TODO: check read-only flag in config before that?
 			typ, _ := cmd.Flags().GetString(flagLoadFormat)
-			if err = internal.Load(h.QuadWriter, quad.DefaultBatch, load, typ); err != nil {
+			concurrency, _ := cmd.Flags().GetInt(flagLoadConcurrency)
+			if err = internal.Load(h.QuadWriter, quad.DefaultBatch, load, typ, concurrency); err != nil {
 				return err
 			}
 
@@ -241,9 +244,10 @@ func openForQueries(cmd *cobra.Command) (*graph.Handle, error) {
 	}
 	if load != "" {
 		typ, _ := cmd.Flags().GetString(flagLoadFormat)
+		concurrency, _ := cmd.Flags().GetInt(flagLoadConcurrency)
 		// TODO: check read-only flag in config before that?
 		start := time.Now()
-		if err = internal.Load(h.QuadWriter, quad.DefaultBatch, load, typ); err != nil {
+		if err = internal.Load(h.QuadWriter, quad.DefaultBatch, load, typ, concurrency); err != nil {
 			h.Close()
 			return nil, err
 		}

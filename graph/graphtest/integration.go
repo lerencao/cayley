@@ -476,7 +476,7 @@ func prepare(t testing.TB, gen testutil.DatabaseFunc) (*graph.Handle, func()) {
 		start := time.Now()
 		var err error
 		for _, p := range []string{"./", "../"} {
-			err = internal.Load(h.QuadWriter, 0, filepath.Join(p, "../../data/30kmoviedata.nq.gz"), format)
+			err = internal.Load(h.QuadWriter, 0, filepath.Join(p, "../../data/30kmoviedata.nq.gz"), format, 1)
 			if err == nil || !os.IsNotExist(err) {
 				break
 			}

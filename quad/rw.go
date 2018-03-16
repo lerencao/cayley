@@ -1,7 +1,9 @@
 package quad
 
 import (
+	"github.com/cayleygraph/cayley/clog"
 	"io"
+	"sync"
 )
 
 // Writer is a minimal interface for quad writers. Used for quad serializers and quad stores.
@@ -146,6 +148,86 @@ func CopyBatch(dst BatchWriter, src Reader, batchSize int) (cnt int, err error) 
 		}
 	}
 	return
+}
+
+type retryBatchWriter struct {
+	BatchWriter
+	MaxRetryCnt int
+	retryCnt    int
+}
+
+func (w *retryBatchWriter) WriteQuads(quads []Quad) (int, error) {
+	n, err := w.BatchWriter.WriteQuads(quads)
+	for err != nil && w.retryCnt < w.MaxRetryCnt {
+		w.retryCnt++
+		clog.Warningf("Fail to write quads, Will retry %d, Error: %v", w.retryCnt, err)
+		n, err = w.BatchWriter.WriteQuads(quads)
+	}
+	return n, err
+}
+
+func CopyBatches(dsts []BatchWriter, src Reader, batchSize int) error {
+	srcChan := make(chan []Quad, 20)
+	errChan := make(chan error) // unbuffered
+	concurrency := len(dsts)
+	if concurrency <= 0 {
+		concurrency = 10
+	}
+	wg := &sync.WaitGroup{}
+	for _, dst := range dsts {
+		wg.Add(1)
+		d := dst
+		go func() {
+			defer wg.Done()
+			for e := range srcChan {
+				bwWithRetry := retryBatchWriter{BatchWriter: d, MaxRetryCnt: 3}
+				_, err := bwWithRetry.WriteQuads(e)
+				if err != nil {
+					errChan <- err
+					break
+				}
+			}
+		}()
+	}
+
+	if batchSize <= 0 {
+		batchSize = DefaultBatch
+	}
+	buf := make([]Quad, batchSize)
+	bsrc, ok := src.(BatchReader)
+	if !ok {
+		bsrc = batchReader{src}
+	}
+	var err error
+	var n int
+	for {
+		select {
+		case err = <-errChan:
+		default:
+		}
+		// error from subtasks
+		if err != nil {
+			break
+		}
+
+		n, err = bsrc.ReadQuads(buf)
+		if err != nil && err != io.EOF {
+			break
+		} else {
+			eof := err == io.EOF
+			err = nil
+			srcChan <- buf[:n]
+			if eof {
+				break
+			}
+		}
+	}
+
+	close(srcChan)
+	wg.Wait()
+	close(errChan)
+
+	return err
 }
 
 // ReadAll reads all quads from r until EOF.

@@ -28,7 +28,7 @@ func init() {
 		Driver:               "mysql",
 		HashType:             fmt.Sprintf(`BINARY(%d)`, quad.HashSize),
 		BytesType:            `BLOB`,
-		HorizonType:          `SERIAL`,
+		HorizonType:          `BIGINT UNSIGNED NOT NULL AUTO_INCREMENT`,
 		TimeType:             `DATETIME(6)`,
 		QueryDialect:         QueryDialect,
 		NoOffsetWithoutLimit: true,
