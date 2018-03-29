@@ -664,6 +664,7 @@ func (qs *QuadStore) hasPrimitive(ctx context.Context, tx BucketTx, p *proto.Pri
 		a = intersectSortedUint64(a, b)
 		lists[0] = a
 	}
+	// TODO: maybe bug here, options is not checked.
 	if !get && unique {
 		return p, nil
 	}
