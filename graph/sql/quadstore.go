@@ -419,22 +419,43 @@ func (qs *QuadStore) ApplyDeltas(in []graph.Delta, opts graph.IgnoreOpts) error 
 		if err != nil {
 			return err
 		}
+		queryNodeRef, err := tx.Prepare(`SELECT refs FROM nodes WHERE hash = ` + p[0] + `;`)
+		if err != nil {
+			return err
+		}
+		deleteNode, err := tx.Prepare(`DELETE FROM nodes WHERE hash = ` + p[0] + `;`)
+		if err != nil {
+			return err
+		}
 		for _, n := range deltas.DecNode {
 			n.RefInc += fixNodes[n.Hash]
 			if n.RefInc == 0 {
 				continue
 			}
-			_, err := updateNode.Exec(n.RefInc, NodeHash{n.Hash}.SQLValue())
+			nodeSQLValue := NodeHash{n.Hash}.SQLValue()
+			curRef := 0
+			err := queryNodeRef.QueryRow(nodeSQLValue).Scan(&curRef)
 			if err != nil {
-				clog.Errorf("couldn't exec UPDATE statement: %v", err)
+				if sql.ErrNoRows == err {
+					clog.Errorf("couldn't found node with hash %v", n.Hash)
+				} else {
+					clog.Errorf("couldn't exec SELECT statement: %v", err)
+				}
 				return err
 			}
-		}
-		// and remove unused nodes at last
-		_, err = tx.Exec(`DELETE FROM nodes WHERE refs <= 0;`)
-		if err != nil {
-			clog.Errorf("couldn't exec DELETE nodes statement: %v", err)
-			return err
+			if curRef+n.RefInc <= 0 {
+				_, err = deleteNode.Exec(nodeSQLValue)
+				if err != nil {
+					clog.Errorf("couldn't exec DELETE statement: %v", err)
+					return err
+				}
+			} else {
+				_, err = updateNode.Exec(n.RefInc, nodeSQLValue)
+				if err != nil {
+					clog.Errorf("couldn't exec UPDATE statement: %v", err)
+					return err
+				}
+			}
 		}
 		return nil
 	})
