@@ -6,6 +6,7 @@ import (
 	"github.com/cayleygraph/cayley/graph/kv"
 	kv2 "github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/tikv"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -30,13 +31,17 @@ func Create(path string, opt graph.Options) (kv.BucketKV, error) {
 }
 
 type TiKV struct {
-	Store tikv.Storage
+	closed atomic.Value
+	Store  tikv.Storage
 }
 
 func newTiKV(store tikv.Storage) *TiKV {
-	return &TiKV{
-		Store: store,
+	kvStore := &TiKV{
+		closed: atomic.Value{},
+		Store:  store,
 	}
+	kvStore.closed.Store(false)
+	return kvStore
 }
 
 func (tikv *TiKV) Type() string {
@@ -44,26 +49,22 @@ func (tikv *TiKV) Type() string {
 }
 
 func (tikv *TiKV) Close() error {
-	return tikv.Store.Close()
+	if !tikv.closed.Load().(bool) {
+		tikv.closed.Store(true)
+		return tikv.Store.Close()
+	}
+	return nil
 }
 
 func (tikv *TiKV) Tx(update bool) (kv.FlatTx, error) {
-	tx := &TiTx{
-		update: update,
-	}
+
+	tx := &TiTx{update: update}
 	var err error
-	if tx.update {
-		tx.txn, err = tikv.Store.Begin()
-	} else {
-		var version kv2.Version
-		version, err = tikv.Store.CurrentVersion()
-		if err == nil {
-			tx.sn, err = tikv.Store.GetSnapshot(version)
-		}
-	}
+	txn, err := tikv.Store.Begin()
 	if err != nil {
 		return nil, err
 	}
+	tx.txn = txn
 	return tx, nil
 }
 
@@ -71,7 +72,6 @@ func (tikv *TiKV) Tx(update bool) (kv.FlatTx, error) {
 type TiTx struct {
 	update bool
 	txn    kv2.Transaction
-	sn     kv2.Snapshot
 }
 
 func (tx *TiTx) Commit(ctx context.Context) error {
@@ -96,10 +96,7 @@ func (tx *TiTx) Rollback() error {
 //}
 
 func (tx *TiTx) Get(ctx context.Context, keys [][]byte) ([][]byte, error) {
-	snap := tx.sn
-	if tx.update {
-		snap = tx.txn.GetSnapshot()
-	}
+	snap := tx.txn.GetSnapshot()
 	// We want []Key instead of [][]byte, use some magic to save memory.
 	origKeys := *(*[]kv2.Key)(unsafe.Pointer(&keys))
 	m, err := snap.BatchGet(origKeys)
